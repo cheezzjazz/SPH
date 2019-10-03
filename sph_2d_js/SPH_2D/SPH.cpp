@@ -1,135 +1,422 @@
-#include <iostream>
-#include <GL/glut.h>
-#include <vector>
-
-using namespace std;
-
-#define MAX_PARTICLES 100
-
-unsigned int scr_width = 640;
-unsigned int scr_height = 640;
-
-int view_width = 100;
-int view_height = 100;
-
-bool bStart = false;
-
-struct Vector2D {
-	Vector2D() {}
-	Vector2D(float _x, float _y) : x(_x), y(_y) {}
-	float x;
-	float y;
-};
-
-struct Particle {
-	Particle(float _x, float _y) : position(_x, _y), velocity(0.0f, 0.0f), density(0.0f), pressure(0.0f), Mass(1) {}
-	Vector2D position;
-	Vector2D velocity;
-	float density;
-	float pressure;
-	int Mass;
-};
-
-vector<Particle> particles;
-
-void InitParticle()
+#include "SPH.h"
+#include <time.h>
+SPH::SPH()
 {
-	for (float y = 20; y < 30; y++)
+
+}
+SPH::~SPH()
+{
+	while (!particles.empty())
 	{
-		for (float x = -5; x < 5; x++)
+		particles.pop_back();
+	}
+	particles.clear();
+}
+
+void SPH::ResetParticle()
+{
+	if (index >= MAX_PARTICLES)
+	{
+		index = 0;
+		while (!particles.empty())
 		{
-			if (particles.size() < MAX_PARTICLES)
-				particles.push_back(Particle(x, y));
+			particles.pop_back();
 		}
 	}
-	cout << particles.size()<< " Paricles" << endl;
 }
 
-void Reshape(int w, int h){
-	glViewport(0, 0, (GLsizei)w, (GLsizei)h);
-	glMatrixMode (GL_PROJECTION);
-	glLoadIdentity();
-	glOrtho(-view_width, view_width, -view_height, view_height, 0, 100);
-	glutPostRedisplay();
+void SPH::Init()
+{
+	ResetParticle();
+
+	int idx = 0;
+	//for (float y = -(view_height / 4); y < (view_height / 2); y += 0.4)
+	for (float y = view_height - pointR; y > (view_height / 2); y -= 0.4)
+	{
+		for (float x = -(view_width / 4); x < (view_width / 2); x += 0.4)
+			//for (float x = -(view_width - pointR); x < (view_width / 6); x += 0.5)
+		{
+			if (particles.size() < MAX_PARTICLES)
+			{
+				Particle *p = new Particle(x, y, idx++, Particle::fluid);
+				particles.push_back(p);
+			}
+		}
+	}
+	cout << "SPH" << particles.size() << " Paricles" << endl;
 }
 
-void Display(void){
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+void SPH::InitPouring()
+{
+	ResetParticle();
 
-	glMatrixMode(GL_MODELVIEW);
-	glLoadIdentity();
-	gluLookAt(0.0f, 0.0f, 20.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f);
+	for (float y = view_height / 2; y > view_height / 2 - 1.0f; y -= 0.4)
+	{
+		for (float x = -1.0f; x < 1.0f; x += 0.4)
+		{
+			if (particles.size() < MAX_PARTICLES)
+			{
+				Particle *p = new Particle(x, y, index++, Particle::fluid);
+				p->velocity.y = -10.0;
+				particles.push_back(p);
+			}
+		}
+	}
+	//cout << "SPH" << particles.size() << " Paricles" << endl;
+}
 
-	//render simulation
-	glColor3f(1.0f, 1.0f, 1.0f);
-	glPointSize(2.0f);
-	glBegin(GL_POINTS);
+//확인필요
+void SPH::add_force(Vector2D ext_force)
+{
 	for (auto &p : particles)
 	{
-		glVertex2f(p.position.x, p.position.y);
-		//cout << p.position.x << ", " << p.position.y << endl;
+		p->add_force(ext_force);
 	}
-	//glVertex2f(0.0f, 0.0f);
-	glEnd();
-
-	glutSwapBuffers();	
 }
 
-void InitGL()
+void SPH::Update(float dt, Vector2D gravity)
 {
-	glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE | GLUT_DEPTH);
-	glutInitWindowSize(scr_width, scr_height);
-	glutCreateWindow("SPH 2D");
-
-	glEnable(GL_DEPTH_TEST);
-	glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+	HashTable();
+	clock_t start = clock();
+	computeDensity();
+	//computePresnVisco();
+	computePressure();
+	computeViscosity();
+	computeSurfacetension();
+	clock_t end = clock();
+	float time = (float)((end - start) / CLOCKS_PER_SEC);
+	//if (time != 0.0f)
+	printf("%0.5f\n", time);	//cout << "Time : " << time<<endl;
+	//system("cls");
+	Integrate(dt, gravity);
 }
 
-void Dokeyboard(unsigned char key, int x, int y)
+void SPH::Draw()
 {
-	switch (key)
+	for (auto &p : particles)
+		p->draw();
+}
+
+
+//float SPH::densKernel(Vector2D x, float h_)
+//{
+//	/*float result = 0.0f;
+//	float poly6 = 4.0f / PI / (h*h*h*h*h*h*h*h);
+//	result = poly6* (h*h-x.normsqr())*(h*h - x.normsqr())*(h*h - x.normsqr());*/
+//	float result = 0.0f;
+//	float q = x.norm() / h_;
+//	//result = poly6 * (1 - q*q) * (1 - q * q) * (1 - q * q);
+//	
+//	result = (1 - q * q) * (1 - q * q) * (1 - q * q);
+//	return result;
+//}
+
+void SPH::computeDensity()
+{
+	float tmpDens = 0.0f;
+	for (auto &pi : particles)
 	{
-	case 'r':
-	case 'R':
-		//Init simulation
-		InitParticle();
+		pi->density = 0.0f;
+		vector<int> neighbors = GetNeighbor(pi->position.x, pi->position.y, h);//using hashgrid
+		for (auto &pj : particles)
+			//for(auto &j : neighbors)//using hashgrid
+		{
+			//Particle &pj = particles.at(j);//using hashgrid
+			//cout << pi.idx << "," << pj.idx << endl;
+			//if (pi.idx == pj.idx)
+			//	continue;
+
+			Vector2D rij = pi->position - pj->position;
+
+			float norm = rij.norm();
+			float q = norm / h;
+			if (0 <= q && q < 1.0f)//q <= 1.0f)
+			{
+				pi->density = pi->density + pj->mass*Kernel(rij, norm, poly6);//JS
+			}
+		}
+		pi->density = pi->density * cpoly6;//JS
+		//tmpDens += pi->density;
+
+	}
+	//tmpDens /= particles.size();
+	//printf("%f\n", tmpDens);
+}
+
+float SPH::Kernel(Vector2D rij, float norm, kernels kernel)
+{
+	float result = 0.0f;
+	switch (kernel)
+	{
+	case kernels::poly6:
+		float temp = 1 - norm*norm;
+		result = temp*temp*temp;
 		break;
-	case 's':
-	case 'S':
-		//Start simulation
-		bStart = true;
+	case kernels::spiky:
+		break;
+	case kernels::viscosity:
 		break;
 	default:
 		break;
 	}
-	glutPostRedisplay();
+	return result;
 }
 
-void Update()
+Vector2D SPH::gradientKernel(Vector2D rij, float norm, kernels kernel)
 {
-	if (bStart)
+	Vector2D result = Vector2D(0.0f, 0.0f);
+	switch (kernel)
 	{
-		//simulation Step
+	case kernels::poly6:
+		float temp = 1.0f - norm*norm;
+		temp *= temp;
+		result = Vector2D(temp*rij.x, temp*rij.y);
+		break;
+	case kernels::spiky://norm = q
+		float temp = (1 - norm) * (1 - norm) / norm;
+		result = Vector2D(temp*rij.x, temp*rij.y);
+		break;
+	case kernels::viscosity:
+		break;
+	default:
+		break;
+	}
+	return result;
+}
 
+float SPH::laplacianKernel(Vector2D rij, float norm, kernels kernel)
+{
+	float result = 0.0f;
+	switch (kernel)
+	{
+	case kernels::poly6:
+		float temp = norm*norm;
+		result = (1 - temp)*(1 - 3 * temp);
+		break;
+	case kernels::spiky:
+		break;
+	case kernels::viscosity: // norm = q
+		result = (1 - norm);
+		break;
+	default:
+		break;
+	}
+	return result;
+}
+
+
+Vector2D SPH::gradientKernel(Vector2D x, float h_)
+{
+	float q = x.norm() / h_;
+	//float spiky = -30 / PI / (h*h*h*h);
+	//float temp = spiky*(1 - q)*(1 - q) / q;
+	float temp = (1 - q) * (1 - q) / q;
+	Vector2D result(temp*x.x, temp*x.y);
+	return result;
+	//return ((1.0f - x.norm())*(1.0f - x.norm()) / x.norm())*x;
+}
+
+Vector2D SPH::gradientKernelPoly(Vector2D x, float h_)
+{
+	float r = x.norm();
+	float temp = 1.0f - r*r;
+	temp *= temp;
+	Vector2D result(temp*x.x, temp*x.y);
+
+	return result;
+}
+
+float SPH::calcSubpressure(float gas_constant, Particle *pi, Particle *pj, float rest_density)
+{
+	float pres_i = gas_constant*(pi->density - rest_density);
+	float pres_j = gas_constant*(pj->density - rest_density);
+	return (pres_i + pres_j) / (2.0f*pj->density);
+	//return gas_constant*(pi.density + pj.density - 2.0*rest_density)/pj.density;
+}
+
+
+float SPH::laplacianKernelPoly(Vector2D x, float h_)
+{
+	float r2 = x.normsqr();
+	return (1 - r2)*(1 - 3 * r2); 
+}
+
+void SPH::computePressure()
+{
+	for (auto &pi : particles)
+	{
+		pi->fpressure = Vector2D(0.0f, 0.0f);
+		vector<int> neighbors = GetNeighbor(pi->position.x, pi->position.y, h);//using hashgrid
+																			   //for (auto &pj : particles)
+		for (auto &j : neighbors)//using hashgrid
+		{
+			Particle *&pj = particles.at(j);
+			if (pi->idx == pj->idx)
+				continue;
+
+			Vector2D rij = pi->position - pj->position;
+			float q = rij.norm() / h;
+			if (0 < q && q <= 1.0f)
+			{
+
+				pi->fpressure = pi->fpressure + gradientKernel(rij, q, spiky)*pj->mass*calcSubpressure(GAS_CONSTANT, pi, pj, rest_density);//JS
+				//pi.fpressure = pi.fpressure + pj.Mass * calcSubpressure(GAS_CONSTANT, pi, pj, rest_density) * GradientKernel(rij, h);//QM
+			}
+		}
+		pi->fpressure = pi->fpressure * -1.0f * cspikyG;//JS
+	}
+}
+
+float SPH::laplacianKernel(Vector2D x, float h_)
+{
+	//float viscosity = 40 / PI / (h*h*h*h);
+	//return viscosity * (1 - x.norm());
+	return (1 - x.norm());
+}
+
+Vector2D SPH::calcSubviscosity(Particle* pi, Particle* pj)
+{
+	if (pj->density == 0.0f)
+	{
+		cout << "den = 0!" << endl;
+		pj->density = 0.0001f;
 	}
 
-	glutPostRedisplay();
+	return (pj->velocity - pi->velocity) / pj->density;
+}
+void SPH::computeViscosity()
+{
+	for (auto &pi : particles)
+	{
+		pi->fviscosity = Vector2D(0.0f, 0.0f);
+		vector<int> neighbors = GetNeighbor(pi->position.x, pi->position.y, h);//using hashgrid
+																			   //for (auto &pj : particles)
+		for (auto &j : neighbors)//using hashgrid
+		{
+			Particle *&pj = particles.at(j);
+			if (pi->idx == pj->idx)
+				continue;
+
+			Vector2D rij = pi->position - pj->position;
+			float q = rij.norm() / h;
+			if (0 <= q && q <= 1.0f)
+			{
+				pi->fviscosity = pi->fviscosity + calcSubviscosity(pi, pj)*pj->mass*laplacianKernel(rij, q, viscosity);//JS
+			}
+		}
+		pi->fviscosity = pi->fviscosity * u * cviscosityL;//JS
+	}
 }
 
-int main(int argc, char** argv){
-	glutInit(&argc, argv);
+void SPH::computePresnVisco()
+{
+	for (auto &pi : particles)
+	{
+		pi->fpressure = Vector2D(0.0f, 0.0f);
+		pi->fviscosity = Vector2D(0.0f, 0.0f);
+		vector<int> neighbors = GetNeighbor(pi->position.x, pi->position.y, h);//using hashgrid
+		for (auto &j : neighbors)//using hashgrid
+		{
+			Particle *&pj = particles.at(j);
+			if (pi->idx == pj->idx)
+				continue;
 
-	InitGL();
+			Vector2D rij = pi->position - pj->position;
+			float q = rij.norm() / h;
+			if (0 < q && q <= 1.0f)
+			{
+				pi->fpressure = pi->fpressure + gradientKernel(rij, q, spiky)*pj->mass*calcSubpressure(GAS_CONSTANT, pi, pj, rest_density);//JS
+				pi->fviscosity = pi->fviscosity + calcSubviscosity(pi, pj)*pj->mass*laplacianKernel(rij, q, viscosity);//JS
+			}
+		}
+		pi->fpressure = pi->fpressure * -1.0f * cspikyG;//JS
+		pi->fviscosity = pi->fviscosity * u * cviscosityL;//JS
+	}
+}
 
-	glutDisplayFunc(Display);
-	glutReshapeFunc(Reshape);
-	glutIdleFunc(Update);
-	glutKeyboardFunc(Dokeyboard);
+void SPH::computeSurfacetension()
+{
+	//color field
+	for (auto &pi : particles)
+	{
+		pi->colorFnormal = Vector2D(0.0f, 0.0f);
+		float tempSurface = 0.0f;
+		vector<int> neighbors = GetNeighbor(pi->getPosX(), pi->getPosY(), h);
+		for (auto &j : neighbors)
+		{
+			Particle *&pj = particles.at(j);
+			Vector2D rij = pi->position - pj->position;
 
-	//Init simulation
-	InitParticle();
+			float norm = rij.norm();
+			float q = norm / h;
+			if (q <= 1)
+			{
+				float tmp = pj->mass / pj->density;
+				pi->colorFnormal = pi->colorFnormal + gradientKernel(rij, norm, poly6) * tmp;
+				tempSurface = tempSurface + laplacianKernel(rij, norm, poly6) * tmp;
+			}
+		}
+		tempSurface = tempSurface * cpoly6L;
+		pi->colorFnormal = pi->colorFnormal * cpoly6G;
+		if (pi->colorFnormal.norm() > 0.0f)
+			pi->fsurface = pi->colorFnormal / pi->colorFnormal.norm() * tempSurface * surfaceCoef * (-1.0f);
+	}
 
-	glutMainLoop();
 
-	return 0;
+}
+
+void SPH::Integrate(float dt, Vector2D gravity)
+{
+	for (auto &p : particles)
+	{
+		p->integrate(dt, gravity);
+	}
+}
+
+void SPH::HashTable()
+{
+	for (int i = 0; i < HASHSIZE; i++)
+	{
+		for (int j = 0; j < HASHSIZE; j++)
+		{
+			hashGrid[i][j].clear();
+		}
+	}
+	int i = 0;
+	for (auto &p : particles)
+	{
+		float x = (p->getPosX() + (float)view_width) / ((float)view_width * 2.0f);
+		float y = (p->getPosY() + (float)view_height) / ((float)view_height * 2.0f);
+		int gridx = (int)(GRIDSIZE * x) + 1;
+		int gridy = (int)(GRIDSIZE * y) + 1;
+
+		if (gridx < 1) gridx = 1;
+		if (gridx > HASHSIZE - 2) gridx = HASHSIZE - 2;
+		if (gridy < 1) y = 1;
+		if (gridy > HASHSIZE - 2) gridy = HASHSIZE - 2;
+
+		hashGrid[gridx][gridy].push_back(p->idx);
+	}
+}
+
+vector<int> SPH::GetNeighbor(float x, float y, float radius)
+{
+	float tempx = (x + (float)view_width) / ((float)view_width * 2.0f);
+	float tempy = (y + (float)view_height) / ((float)view_height * 2.0f);
+	int gridx = (int)(GRIDSIZE * tempx) + 1;
+	int gridy = (int)(GRIDSIZE * tempy) + 1;
+
+	vector<int>res;
+	for (int i = gridx - radius; i <= gridx + radius; i++)
+	{
+		for (int j = gridy - radius; j <= gridy + radius; j++)
+		{
+			if (i<0 || i>HASHSIZE - 1 || j<0 || j>HASHSIZE - 1)continue;
+			for (int k = 0; k < hashGrid[i][j].size(); k++)
+			{
+				res.push_back(hashGrid[i][j].at(k));
+			}
+		}
+	}
+	return res;
 }

@@ -15,15 +15,30 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="qm\sph.cpp">
+    <ClCompile Include="take2_sph\Simulator.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="main.cpp">
+    <ClCompile Include="take2_sph\SPH.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="take2_sph\Main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Particle.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="qm\vector.h">
+    <ClInclude Include="take2_sph\Particle.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="take2_sph\Simulator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="take2_sph\SPH.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="take2_sph\Vector.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

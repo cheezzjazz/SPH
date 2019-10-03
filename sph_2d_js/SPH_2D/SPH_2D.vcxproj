@@ -18,6 +18,18 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="Particle.cpp" />
+    <ClCompile Include="take2_sph\Main.cpp" />
+    <ClCompile Include="take2_sph\Simulator.cpp" />
+    <ClCompile Include="take2_sph\SPH.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="take2_sph\Particle.h" />
+    <ClInclude Include="take2_sph\Simulator.h" />
+    <ClInclude Include="take2_sph\SPH.h" />
+    <ClInclude Include="take2_sph\Vector.h" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <ProjectGuid>{27A35850-048A-4A3F-85EF-22634A91D984}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
@@ -147,13 +159,6 @@
       <AdditionalDependencies>freeglut.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
-  <ItemGroup>
-    <ClCompile Include="main.cpp" />
-    <ClCompile Include="qm\sph.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="qm\vector.h" />
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
